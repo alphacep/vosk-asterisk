@@ -1,8 +1,11 @@
-EXTRA_DIST           = bootstrap
-
 AUTOMAKE_OPTIONS     = foreign
-MAINTAINERCLEANFILES = Makefile.in aclocal.m4 configure config.nice $(AUX_DIST) $(MACRO_DIST)
-
-ACLOCAL              = aclocal -I $(macrodir)
+MAINTAINERCLEANFILES = Makefile.in aclocal.m4 configure config.nice
+ACLOCAL_AMFLAGS      = -I m4
 
 SUBDIRS              = res-speech-vosk
+
+EXTRA_DIST           = bootstrap conf/res-speech-vosk.conf
+
+install-data-local:
+	test -d $(DESTDIR)$(ASTERISK_CONF_DIR) || $(mkinstalldirs) $(DESTDIR)$(ASTERISK_CONF_DIR)
+	test -f $(DESTDIR)$(ASTERISK_CONF_DIR)/res-speech-vosk.conf || $(INSTALL) -m 644 $(top_srcdir)/conf/res-speech-vosk.conf $(DESTDIR)$(ASTERISK_CONF_DIR)

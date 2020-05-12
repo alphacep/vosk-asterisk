@@ -20,6 +20,8 @@
 /libtool
 /Makefile.in
 /Makefile
+/config.h
+/stamp-h1
 
 # /res-speech-vosk/
 /res-speech-vosk/.libs

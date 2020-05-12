@@ -35,6 +35,7 @@
 #include <asterisk/frame.h>
 #include <asterisk/speech.h>
 #include <asterisk/format_cache.h>
+#include <asterisk/http_websocket.h>
 
 #define VOSK_ENGINE_NAME "vosk"
 #define VOSK_ENGINE_CONFIG "res-speech-vosk.conf"
@@ -48,17 +49,18 @@ typedef struct vosk_engine_t vosk_engine_t;
 struct vosk_speech_t {
 	/* Name of the speech object to be used for logging */
 	char                   *name;
-
 	/* Asterisk speech base */
 	struct ast_speech     *speech_base;
-	/* Recognition status */
-	int                    is_inprogress;
+	/* Websocket connection */
+	struct ast_websocket *ws;
 };
 
 /** \brief Declaration of UniMRCP based recognition engine */
 struct vosk_engine_t {
 	/* Log level */
 	int			log_level;
+	/* Websocket url*/
+	char			*ws_url;
 };
 
 static struct vosk_engine_t vosk_engine;
@@ -67,13 +69,18 @@ static struct vosk_engine_t vosk_engine;
 static int vosk_recog_create(struct ast_speech *speech, struct ast_format *format)
 {
 	vosk_speech_t *vosk_speech;
+	enum ast_websocket_result result;
 
 	vosk_speech = ast_malloc(sizeof(vosk_speech_t));
 	vosk_speech->name = "vosk";
 	vosk_speech->speech_base = speech;
 	speech->data = vosk_speech;
 
-	ast_log(LOG_NOTICE, "(%s) Create speech resource\n",vosk_speech->name);
+	ast_log(LOG_NOTICE, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
+
+	vosk_speech->ws  = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
+
+	ast_log(LOG_NOTICE, "(%s) Create speech resource result %d\n", vosk_speech->name, result);
 }
 
 /** \brief Destroy any data set on the speech structure by the engine */
@@ -81,7 +88,16 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Destroy speech resource\n",vosk_speech->name);
-	ast_free(vosk_speech->name);
+
+	if (vosk_speech->ws) {
+		int fd = ast_websocket_fd(vosk_speech->ws);
+		if (fd > 0) {
+			ast_websocket_close(vosk_speech->ws, 1000);
+			shutdown(fd, SHUT_RDWR);
+		}
+		ast_websocket_unref(vosk_speech->ws);
+	}
+
 	return 0;
 }
 
@@ -175,9 +191,6 @@ struct ast_speech_result* vosk_recog_get(struct ast_speech *speech)
 
 	vosk_speech_t *vosk_speech = speech->data;
 
-	if(vosk_speech->is_inprogress) {
-		vosk_recog_stop(speech);
-	}
 	ast_set_flag(speech,AST_SPEECH_HAVE_RESULTS);
 	return result;
 }
@@ -214,6 +227,13 @@ static int vosk_engine_config_load()
 		ast_log(LOG_DEBUG, "general.log-level=%s\n", value);
 		vosk_engine.log_level = atoi(value);
 	}
+	if((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
+		ast_log(LOG_DEBUG, "general.url=%s\n", value);
+		vosk_engine.ws_url = ast_strdup(value);
+	}
+	if (!vosk_engine.ws_url) {
+		vosk_engine.ws_url = ast_strdup("ws://localhost");
+	}
 	ast_config_destroy(cfg);
 	return 0;
 }
@@ -221,9 +241,7 @@ static int vosk_engine_config_load()
 /** \brief Load module */
 static int load_module(void)
 {
-	ast_log(LOG_NOTICE, "Load Res-Speech-UniMRCP module\n");
-
-	vosk_engine.log_level = LOG_DEBUG;
+	ast_log(LOG_NOTICE, "Load res_speech_vosk module\n");
 
 	/* Load engine configuration */
 	vosk_engine_config_load();
@@ -246,7 +264,9 @@ static int load_module(void)
 /** \brief Unload module */
 static int unload_module(void)
 {
-	ast_log(LOG_NOTICE, "Unload Res-Speech-Vosk module\n");
+	ast_free(vosk_engine.ws_url);
+
+	ast_log(LOG_NOTICE, "Unload res_speech_vosk module\n");
 	if(ast_speech_unregister(VOSK_ENGINE_NAME)) {
 		ast_log(LOG_ERROR, "Failed to unregister module\n");
 	}
