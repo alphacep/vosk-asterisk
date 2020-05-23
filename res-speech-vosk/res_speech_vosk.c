@@ -78,9 +78,13 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 
 	ast_log(LOG_NOTICE, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
 
-	vosk_speech->ws  = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
+	vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
+	if (!vosk_speech->ws) {
+		ast_free(speech->data);
+		return -1;
+	} 
 
-	ast_log(LOG_NOTICE, "(%s) Create speech resource result %d\n", vosk_speech->name, result);
+	ast_log(LOG_NOTICE, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
 }
 
 /** \brief Destroy any data set on the speech structure by the engine */
@@ -106,6 +110,7 @@ static int vosk_recog_stop(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Stop recognition\n",vosk_speech->name);
+	ast_speech_change_state(speech, AST_SPEECH_STATE_NOT_READY);
 	return 0;
 }
 
@@ -137,10 +142,17 @@ static int vosk_recog_deactivate_grammar(struct ast_speech *speech, const char *
 static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 {
 	vosk_speech_t *vosk_speech = speech->data;
+	char *res;
+	int res_len;
 
-#if 1
-	ast_log(LOG_DEBUG, "(%s) Write audio len: %d\n",vosk_speech->name,len);
-#endif
+	ast_log(LOG_NOTICE, "(%s) Write audio len: %d\n",vosk_speech->name,len);
+	ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, (char *)data, len);
+	res_len = ast_websocket_read_string(vosk_speech->ws, &res);
+	
+	if (res_len >= 0) {
+		ast_log(LOG_NOTICE, "(%s) Got result: %d %s\n", vosk_speech->name, res_len, res);
+		ast_free(res);
+	}
 	return 0;
 }
 
@@ -156,8 +168,8 @@ static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 static int vosk_recog_start(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-
 	ast_log(LOG_NOTICE, "(%s) Start recognition\n",vosk_speech->name);
+	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
 }
 
@@ -183,7 +195,6 @@ static int vosk_recog_change_results_type(struct ast_speech *speech,enum ast_spe
 	return -1;
 }
 
-
 /** \brief Try to get result */
 struct ast_speech_result* vosk_recog_get(struct ast_speech *speech)
 {
@@ -191,7 +202,7 @@ struct ast_speech_result* vosk_recog_get(struct ast_speech *speech)
 
 	vosk_speech_t *vosk_speech = speech->data;
 
-	ast_set_flag(speech,AST_SPEECH_HAVE_RESULTS);
+	//ast_set_flag(speech, AST_SPEECH_HAVE_RESULTS);
 	return result;
 }
 
