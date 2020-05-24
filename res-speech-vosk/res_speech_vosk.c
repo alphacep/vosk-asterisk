@@ -35,27 +35,32 @@
 #include <asterisk/frame.h>
 #include <asterisk/speech.h>
 #include <asterisk/format_cache.h>
+#include <asterisk/json.h>
+
 #include <asterisk/http_websocket.h>
 
 #define VOSK_ENGINE_NAME "vosk"
 #define VOSK_ENGINE_CONFIG "res-speech-vosk.conf"
+#define VOSK_BUF_SIZE 3200
 
 /** \brief Forward declaration of speech (client object) */
 typedef struct vosk_speech_t vosk_speech_t;
 /** \brief Forward declaration of engine (global object) */
 typedef struct vosk_engine_t vosk_engine_t;
 
-/** \brief Declaration of UniMRCP based speech structure */
+/** \brief Declaration of Vosk speech structure */
 struct vosk_speech_t {
 	/* Name of the speech object to be used for logging */
-	char                   *name;
-	/* Asterisk speech base */
-	struct ast_speech     *speech_base;
+	char			*name;
 	/* Websocket connection */
-	struct ast_websocket *ws;
+	struct			ast_websocket *ws;
+	/* Buffer for frames */
+	char			buf[VOSK_BUF_SIZE];
+	int			offset;
+	char			*last_result;
 };
 
-/** \brief Declaration of UniMRCP based recognition engine */
+/** \brief Declaration of Vosk recognition engine */
 struct vosk_engine_t {
 	/* Log level */
 	int			log_level;
@@ -73,7 +78,6 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 
 	vosk_speech = ast_malloc(sizeof(vosk_speech_t));
 	vosk_speech->name = "vosk";
-	vosk_speech->speech_base = speech;
 	speech->data = vosk_speech;
 
 	ast_log(LOG_NOTICE, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
@@ -101,6 +105,8 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 		}
 		ast_websocket_unref(vosk_speech->ws);
 	}
+	ast_free(vosk_speech->last_result);
+	ast_free(vosk_speech);
 
 	return 0;
 }
@@ -145,14 +151,33 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	char *res;
 	int res_len;
 
-	ast_log(LOG_NOTICE, "(%s) Write audio len: %d\n",vosk_speech->name,len);
-	ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, (char *)data, len);
-	res_len = ast_websocket_read_string(vosk_speech->ws, &res);
-	
-	if (res_len >= 0) {
-		ast_log(LOG_NOTICE, "(%s) Got result: %d %s\n", vosk_speech->name, res_len, res);
-		ast_free(res);
+	ast_assert (vosk-speech->offset + len < VOSK_BUF_SIZE);
+
+	memcpy(vosk_speech->buf + vosk_speech->offset, data, len);
+	vosk_speech->offset += len;
+	if (vosk_speech->offset == VOSK_BUF_SIZE) {
+		ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, vosk_speech->buf, VOSK_BUF_SIZE);
+		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
+		if (res_len >= 0) {
+			ast_log(LOG_NOTICE, "(%s) Got result: '%s'\n", vosk_speech->name, res);
+			struct ast_json_error err;
+			struct ast_json *res_json = ast_json_load_string(res, &err);
+			if (res_json != NULL) {
+				const char *text = ast_json_object_string_get(res_json, "text");
+				if (text != NULL && !ast_strlen_zero(text)) {
+					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
+					ast_free(vosk_speech->last_result);
+					vosk_speech->last_result = ast_strdup(text);
+					ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
+				}
+			} else {
+				ast_log(LOG_ERROR, "(%s) JSON parse error: %s\n", vosk_speech->name, err.text);
+			}
+			ast_json_free(res_json);
+		}
+		vosk_speech->offset = 0;
 	}
+
 	return 0;
 }
 
@@ -198,12 +223,15 @@ static int vosk_recog_change_results_type(struct ast_speech *speech,enum ast_spe
 /** \brief Try to get result */
 struct ast_speech_result* vosk_recog_get(struct ast_speech *speech)
 {
-	struct ast_speech_result *result;
+	struct ast_speech_result *speech_result;
 
 	vosk_speech_t *vosk_speech = speech->data;
+	speech_result = ast_calloc(sizeof(struct ast_speech_result), 1);
+	speech_result->text = ast_strdup(vosk_speech->last_result);
+	speech_result->score = 100;
 
-	//ast_set_flag(speech, AST_SPEECH_HAVE_RESULTS);
-	return result;
+	ast_set_flag(speech, AST_SPEECH_HAVE_RESULTS);
+	return speech_result;
 }
 
 /** \brief Speech engine declaration */
@@ -224,7 +252,7 @@ static struct ast_speech_engine ast_engine = {
 	vosk_recog_get
 };
 
-/** \brief Load UniMRCP engine configuration (/etc/asterisk/res_speech_vosk.conf)*/
+/** \brief Load Vosk engine configuration (/etc/asterisk/res_speech_vosk.conf)*/
 static int vosk_engine_config_load()
 {
 	const char *value = NULL;
