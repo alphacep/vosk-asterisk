@@ -1,5 +1,5 @@
 AUTOMAKE_OPTIONS     = foreign
-MAINTAINERCLEANFILES = Makefile.in aclocal.m4 configure config.nice
+MAINTAINERCLEANFILES = Makefile.in aclocal.m4 configure
 ACLOCAL_AMFLAGS      = -I m4
 
 SUBDIRS              = res-speech-vosk
