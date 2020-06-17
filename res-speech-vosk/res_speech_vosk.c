@@ -76,7 +76,7 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 	vosk_speech_t *vosk_speech;
 	enum ast_websocket_result result;
 
-	vosk_speech = ast_malloc(sizeof(vosk_speech_t));
+	vosk_speech = ast_calloc(1, sizeof(vosk_speech_t));
 	vosk_speech->name = "vosk";
 	speech->data = vosk_speech;
 
