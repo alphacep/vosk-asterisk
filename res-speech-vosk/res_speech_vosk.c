@@ -157,6 +157,10 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	vosk_speech->offset += len;
 	if (vosk_speech->offset == VOSK_BUF_SIZE) {
 		ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, vosk_speech->buf, VOSK_BUF_SIZE);
+		vosk_speech->offset = 0;
+	}
+
+	if (ast_websocket_wait_for_input(vosk_speech->ws, 0) > 0) {
 		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
 		if (res_len >= 0) {
 			ast_log(LOG_NOTICE, "(%s) Got result: '%s'\n", vosk_speech->name, res);
@@ -174,8 +178,9 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 				ast_log(LOG_ERROR, "(%s) JSON parse error: %s\n", vosk_speech->name, err.text);
 			}
 			ast_json_free(res_json);
+		} else {
+			ast_log(LOG_NOTICE, "(%s) Got error result %d\n", vosk_speech->name, res_len);
 		}
-		vosk_speech->offset = 0;
 	}
 
 	return 0;
