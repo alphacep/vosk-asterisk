@@ -1460,7 +1460,8 @@ int AST_OPTIONAL_API_NAME(ast_websocket_read_string)
 		return -1;
 	}
 
-	ast_copy_string(*buf, payload, payload_len + 1);
+	memcpy(*buf, payload, payload_len);
+	(*buf)[payload_len] = 0;
 	return payload_len + 1;
 }
 
