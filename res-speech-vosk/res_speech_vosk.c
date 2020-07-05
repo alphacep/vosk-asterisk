@@ -52,6 +52,7 @@ typedef struct vosk_engine_t vosk_engine_t;
 struct vosk_speech_t {
 	/* Name of the speech object to be used for logging */
 	char			*name;
+	char			*language;
 	/* Websocket connection */
 	struct			ast_websocket *ws;
 	/* Buffer for frames */
@@ -60,35 +61,52 @@ struct vosk_speech_t {
 	char			*last_result;
 };
 
+struct vosk_engine_language_t {
+	char			*name;
+	char			*ws_url;
+	AST_LIST_ENTRY(vosk_engine_language_t) list;
+};
+
 /** \brief Declaration of Vosk recognition engine */
 struct vosk_engine_t {
 	/* Log level */
 	int			log_level;
 	/* Websocket url*/
 	char			*ws_url;
+	struct 			vosk_engine_language_t *languages;
 };
 
 static struct vosk_engine_t vosk_engine;
+
+/*! \brief Free a list of results */
+static const char* _language_list_get(char* lang)
+{
+	struct vosk_engine_language_t *current_lang = vosk_engine.languages;
+	int res = 0;
+	char *ws_url = vosk_engine.ws_url;
+
+	while (current_lang != NULL) {
+		if(strcasecmp(current_lang->name, lang) == 0) {
+			ws_url = current_lang->ws_url;
+			break;
+		}
+		/* Move on and then free ourselves */
+		current_lang = AST_LIST_NEXT(current_lang, list);
+	}
+
+	return ws_url;
+}
 
 /** \brief Set up the speech structure within the engine */
 static int vosk_recog_create(struct ast_speech *speech, struct ast_format *format)
 {
 	vosk_speech_t *vosk_speech;
-	enum ast_websocket_result result;
 
 	vosk_speech = ast_calloc(1, sizeof(vosk_speech_t));
 	vosk_speech->name = "vosk";
 	speech->data = vosk_speech;
 
-	ast_log(LOG_NOTICE, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
-
-	vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
-	if (!vosk_speech->ws) {
-		ast_free(speech->data);
-		return -1;
-	} 
-
-	ast_log(LOG_NOTICE, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
+	ast_log(LOG_NOTICE, "(%s) Create speech resource\n",vosk_speech->name);
 }
 
 /** \brief Destroy any data set on the speech structure by the engine */
@@ -105,7 +123,8 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 		}
 		ast_websocket_unref(vosk_speech->ws);
 	}
-	ast_free(vosk_speech->last_result);
+	if(vosk_speech->last_result) ast_free(vosk_speech->last_result);
+	if(vosk_speech->language) ast_free(vosk_speech->language);
 	ast_free(vosk_speech);
 
 	return 0;
@@ -157,10 +176,6 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	vosk_speech->offset += len;
 	if (vosk_speech->offset == VOSK_BUF_SIZE) {
 		ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, vosk_speech->buf, VOSK_BUF_SIZE);
-		vosk_speech->offset = 0;
-	}
-
-	if (ast_websocket_wait_for_input(vosk_speech->ws, 0) > 0) {
 		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
 		if (res_len >= 0) {
 			ast_log(LOG_NOTICE, "(%s) Got result: '%s'\n", vosk_speech->name, res);
@@ -170,17 +185,16 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 				const char *text = ast_json_object_string_get(res_json, "text");
 				if (text != NULL && !ast_strlen_zero(text)) {
 					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
-					ast_free(vosk_speech->last_result);
+					if(vosk_speech->last_result) ast_free(vosk_speech->last_result);
 					vosk_speech->last_result = ast_strdup(text);
 					ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
 				}
+				ast_json_free(res_json);
 			} else {
 				ast_log(LOG_ERROR, "(%s) JSON parse error: %s\n", vosk_speech->name, err.text);
 			}
-			ast_json_free(res_json);
-		} else {
-			ast_log(LOG_NOTICE, "(%s) Got error result %d\n", vosk_speech->name, res_len);
 		}
+		vosk_speech->offset = 0;
 	}
 
 	return 0;
@@ -197,8 +211,21 @@ static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 /** brief Prepare engine to accept audio */
 static int vosk_recog_start(struct ast_speech *speech)
 {
+	enum ast_websocket_result result;
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Start recognition\n",vosk_speech->name);
+	if(!vosk_speech->ws) {
+		if(vosk_speech->language) {
+			vosk_speech->ws = ast_websocket_client_create(_language_list_get(vosk_speech->language), "ws", NULL, &result);
+		} else {
+			vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
+		}
+		ast_log(LOG_NOTICE, "(%s) Connecting to the speech recognition service result %d\n", vosk_speech->name, result);
+		if (!vosk_speech->ws) {
+			ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
+			return -1;
+		} 
+	}
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
 }
@@ -208,6 +235,19 @@ static int vosk_recog_change(struct ast_speech *speech, const char *name, const 
 {
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Change setting name: %s value:%s\n",vosk_speech->name,name,value);
+	if(strcasecmp(name, "language")==0) {
+		if(vosk_speech->language != NULL) ast_free(vosk_speech->language);
+		vosk_speech->language = ast_strdup(value);
+		if (vosk_speech->ws != NULL) {
+			int fd = ast_websocket_fd(vosk_speech->ws);
+			if (fd > 0) {
+				ast_websocket_close(vosk_speech->ws, 1000);
+				shutdown(fd, SHUT_RDWR);
+			}
+			ast_websocket_unref(vosk_speech->ws);
+			vosk_speech->ws = NULL;
+		}
+	}
 	return 0;
 }
 
@@ -216,6 +256,14 @@ static int vosk_recog_get_settings(struct ast_speech *speech, const char *name, 
 {
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Get settings name: %s\n",vosk_speech->name,name);
+	if(strcasecmp(name, "language")==0) {
+		if(vosk_speech->language) {
+			strncpy(buf, vosk_speech->language, len);
+		} else {
+			strncpy(buf, "", len);
+		}
+		return 0;
+	}
 	return -1;
 }
 
@@ -232,7 +280,8 @@ struct ast_speech_result* vosk_recog_get(struct ast_speech *speech)
 
 	vosk_speech_t *vosk_speech = speech->data;
 	speech_result = ast_calloc(sizeof(struct ast_speech_result), 1);
-	speech_result->text = ast_strdup(vosk_speech->last_result);
+	if(vosk_speech->last_result) speech_result->text = ast_strdup(vosk_speech->last_result);
+	else speech_result->text = ast_strdup("");
 	speech_result->score = 100;
 
 	ast_set_flag(speech, AST_SPEECH_HAVE_RESULTS);
@@ -263,6 +312,8 @@ static int vosk_engine_config_load()
 	const char *value = NULL;
 	struct ast_flags config_flags = { 0 };
 	struct ast_config *cfg = ast_config_load(VOSK_ENGINE_CONFIG, config_flags);
+	char *category = NULL;
+	struct vosk_engine_language_t *last_language = vosk_engine.languages;
 	if(!cfg) {
 		ast_log(LOG_WARNING, "No such configuration file %s\n", VOSK_ENGINE_CONFIG);
 		return -1;
@@ -272,11 +323,29 @@ static int vosk_engine_config_load()
 		vosk_engine.log_level = atoi(value);
 	}
 	if((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
-		ast_log(LOG_DEBUG, "general.url=%s\n", value);
+		ast_log(LOG_NOTICE, "general.url=%s\n", value);
 		vosk_engine.ws_url = ast_strdup(value);
 	}
 	if (!vosk_engine.ws_url) {
 		vosk_engine.ws_url = ast_strdup("ws://localhost");
+	}
+
+	while(category = ast_category_browse(cfg, category)) {
+		if(strcasecmp(category, "general")!=0) {
+			if((value = ast_variable_retrieve(cfg, category, "url")) != NULL) {
+				ast_log(LOG_NOTICE, "%s.url=%s\n", category, value);
+				if(last_language == NULL) {
+					vosk_engine.languages = ast_calloc(sizeof(struct vosk_engine_language_t), 1);
+					last_language = vosk_engine.languages;
+				} else {
+					last_language->list.next = ast_calloc(sizeof(struct vosk_engine_language_t), 1);
+					last_language = AST_LIST_NEXT(last_language, list);
+				}
+				last_language->name = ast_strdup(category);
+				last_language->ws_url = ast_strdup(value);
+			}
+			
+		}
 	}
 	ast_config_destroy(cfg);
 	return 0;
@@ -287,6 +356,7 @@ static int load_module(void)
 {
 	ast_log(LOG_NOTICE, "Load res_speech_vosk module\n");
 
+        vosk_engine.languages = NULL;
 	/* Load engine configuration */
 	vosk_engine_config_load();
 
@@ -305,10 +375,41 @@ static int load_module(void)
 	return AST_MODULE_LOAD_SUCCESS;
 }
 
+/*! \brief Free a list of results */
+static int _language_list_free(struct vosk_engine_language_t *language)
+{
+	struct vosk_engine_language_t *current_lang = language, *prev_lang = NULL;
+	int res = 0;
+
+	while (current_lang != NULL) {
+		prev_lang = current_lang;
+		/* Deallocate what we can */
+		if (current_lang->name != NULL) {
+			ast_free(current_lang->name);
+			current_lang->name = NULL;
+		}
+		if (current_lang->ws_url != NULL) {
+			ast_free(current_lang->ws_url);
+			current_lang->ws_url = NULL;
+		}
+		/* Move on and then free ourselves */
+		current_lang = AST_LIST_NEXT(current_lang, list);
+		ast_free(prev_lang);
+		prev_lang = NULL;
+	}
+
+	return res;
+}
+
 /** \brief Unload module */
 static int unload_module(void)
 {
 	ast_free(vosk_engine.ws_url);
+
+	if(vosk_engine.languages != NULL) {
+		_language_list_free(vosk_engine.languages);
+		vosk_engine.languages = NULL;
+	}
 
 	ast_log(LOG_NOTICE, "Unload res_speech_vosk module\n");
 	if(ast_speech_unregister(VOSK_ENGINE_NAME)) {
