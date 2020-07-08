@@ -459,11 +459,12 @@ static int vosk_recog_start(struct ast_speech *speech)
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_log(LOG_NOTICE, "(%s) Start recognition\n",vosk_speech->name);
 	if (!vosk_speech->ws) {
-		char *tmp, *ws_url = NULL;
+		const char *tmp;
+		char *ws_url = NULL;
 		int len;
 
 		if (vosk_speech->server) {
-			tmp = language_list_get(vosk_speech->server);
+			tmp = _server_list_get(vosk_speech->server);
 		} else {
 			tmp = vosk_engine.ws_url;
 		}
