@@ -4,7 +4,9 @@ This is an asterisk module for [Vosk API](https://github.com/alphacep/vosk-api) 
 
 https://github.com/alphacep/vosk-server
 
-It is tested with latest asterisk git master, but should probably work for earlier versions.
+It is tested with latest asterisk git master, but should equally work
+with other branches (13,16,17).  Just make sure you have latest branch
+update since we need some fixes in res_http_websocket.
 
 ## Installation
 
@@ -20,14 +22,8 @@ make install
 
 ```
 load = res_speech.so
+load = res_http_websocket.so
 load = res_speech_vosk.so
-load = res_http_websocket_fix.so
-```
-
-disable original `res_http_websocket` since it contains bugs
-
-```
-; load = res_http_websocket.so
 ```
 
 3) Edit dialplan in `extensions.conf`:
