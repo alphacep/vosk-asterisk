@@ -117,32 +117,32 @@ static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
 static int mod_table[] = {0, 2, 1};
 
 char *base64_encode(const unsigned char *data,
-                    int input_length,
-                    int *output_length) {
+			int input_length,
+			int *output_length) {
 
-    *output_length = 4 * ((input_length + 2) / 3);
+	*output_length = 4 * ((input_length + 2) / 3);
 
-    char *encoded_data = ast_malloc(*output_length);
-    if (encoded_data == NULL) return NULL;
+	char *encoded_data = ast_calloc(*output_length, 1);
+	if (encoded_data == NULL) return NULL;
 
-    for (int i = 0, j = 0; i < input_length;) {
+	for (int i = 0, j = 0; i < input_length;) {
 
-        uint32_t octet_a = i < input_length ? (unsigned char)data[i++] : 0;
-        uint32_t octet_b = i < input_length ? (unsigned char)data[i++] : 0;
-        uint32_t octet_c = i < input_length ? (unsigned char)data[i++] : 0;
+		uint32_t octet_a = i < input_length ? (unsigned char)data[i++] : 0;
+		uint32_t octet_b = i < input_length ? (unsigned char)data[i++] : 0;
+		uint32_t octet_c = i < input_length ? (unsigned char)data[i++] : 0;
 
-        uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+		uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
 
-        encoded_data[j++] = encoding_table[(triple >> 3 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 2 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 1 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 0 * 6) & 0x3F];
-    }
+		encoded_data[j++] = encoding_table[(triple >> 3 * 6) & 0x3F];
+		encoded_data[j++] = encoding_table[(triple >> 2 * 6) & 0x3F];
+		encoded_data[j++] = encoding_table[(triple >> 1 * 6) & 0x3F];
+		encoded_data[j++] = encoding_table[(triple >> 0 * 6) & 0x3F];
+	}
 
-    for (int i = 0; i < mod_table[input_length % 3]; i++)
-        encoded_data[*output_length - 1 - i] = '=';
+	for (int i = 0; i < mod_table[input_length % 3]; i++)
+		encoded_data[*output_length - 1 - i] = '=';
 
-    return encoded_data;
+	return encoded_data;
 }
 
 /*! \brief Search list of servers and find corresponding one */
@@ -165,12 +165,12 @@ static const char* _server_list_get(char* server)
 }
 
 static int _grammar_list_free(struct vosk_grammar_list_t *list) {
-    struct vosk_grammar_list_t *current_grammar = list, *prev_grammar = NULL;
+	struct vosk_grammar_list_t *current_grammar = list, *prev_grammar = NULL;
 	while (current_grammar != NULL) {
 		prev_grammar = current_grammar;
-		if (current_grammar->file_name) ast_free(current_grammar->file_name);
-		if (current_grammar->grammar_name) ast_free(current_grammar->grammar_name);
-        current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		if (current_grammar->file_name != NULL) ast_free(current_grammar->file_name);
+		if (current_grammar->grammar_name != NULL) ast_free(current_grammar->grammar_name);
+		current_grammar = AST_LIST_NEXT(current_grammar, list);
 		ast_free(prev_grammar);
 	}
 	return 0;
@@ -217,10 +217,10 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 		/* Move on and then free ourselves */
 		current_result = AST_LIST_NEXT(current_result, list);
 		ast_free(prev_result);
-		prev_result = NULL;	
+		prev_result = NULL;
 	}
 	vosk_speech->results = NULL;
-    if (vosk_speech->new_grammars != NULL) {
+	if (vosk_speech->new_grammars != NULL) {
 		_grammar_list_free(vosk_speech->new_grammars);
 		vosk_speech->new_grammars = NULL;
 	}
@@ -244,18 +244,18 @@ static int vosk_recog_stop(struct ast_speech *speech)
 /** \brief Send grammar data to add named grammar and policy to the Vosk server */
 static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_name, const char *file_name) {
 	int len = 0, result = 0, fd, file_size;
-	char *buf =	NULL, *file_contents = NULL, *base64 = NULL;
-    if (!ast_file_is_readable(file_name)) return -1;
-    fd = open(file_name, O_RDONLY);
+	char *buf = NULL, *file_contents = NULL, *base64 = NULL;
+	if (!ast_file_is_readable(file_name)) return -1;
+	fd = open(file_name, O_RDONLY);
 	if (fd == -1) return -1;
-    file_size = lseek(fd, 0, SEEK_END)+1;
+	file_size = lseek(fd, 0, SEEK_END)+1;
 	if (file_size>1024*1024) {
 		close(fd);
 		ast_log(LOG_WARNING, "(%s) Grammar file <%s> are too large, 1MB max size exceeds: %dK\n", "vosk", file_name, file_size/1024);
 		return -1;
 	}
 	lseek(fd, 0, SEEK_SET);
-	file_contents = ast_malloc(file_size);
+	file_contents = ast_malloc(file_size+1);
 	if (file_contents == NULL) {
 		close(fd);
 		ast_log(LOG_WARNING, "(%s) Grammar file <%s> loading faled, not fits into memory\n", "vosk", file_name);
@@ -263,15 +263,14 @@ static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_na
 	}
 	file_size = read(fd, file_contents, file_size);
 	close(fd);
-    
+
 	base64 = base64_encode(file_contents, file_size, &file_size);
 	ast_free(file_contents);
 	if(base64 == NULL) {
 		return -1;
 	}
-    file_contents = base64;
+	file_contents = base64;
 
-	ast_log(LOG_NOTICE, "(%s) Upload grammar to engine over websocket: %s \n", "vosk", grammar_name);
 	len = snprintf(buf, len, "{\"newgrammar\": \"%s\", \"grammar_data\": \"%s\"}", grammar_name, file_contents);
 	if (len < 0) {
 		ast_free(file_contents);
@@ -286,6 +285,7 @@ static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_na
 		ast_free(buf);
 		return -1;
 	}
+	ast_log(LOG_NOTICE, "(%s) Upload grammar (%d) to engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(file_contents);
 	ast_free(buf);
@@ -296,7 +296,6 @@ static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_na
 static int vosk_remove_ws_grammar(struct ast_websocket *ws, const char *grammar_name) {
 	int len = 0, result = 0;
 	char* buf =	NULL;
-	ast_log(LOG_NOTICE, "(%s) Remove grammar from engine over websocket: %s \n", "vosk", grammar_name);
 	len = snprintf(buf, len, "{\"delgrammar\": \"%s\"}", grammar_name);
 	if (len < 0) return -1;
 	len++;
@@ -307,6 +306,7 @@ static int vosk_remove_ws_grammar(struct ast_websocket *ws, const char *grammar_
 		ast_free(buf);
 		return -1;
 	}
+	ast_log(LOG_NOTICE, "(%s) Remove grammar (%d) from engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(buf);
 	return result;
@@ -321,9 +321,9 @@ static int vosk_send_grammars(struct vosk_speech_t *vosk_speech) {
 			case VOSK_GRAMMAR_ADD: vosk_load_ws_grammar(vosk_speech->ws, current_grammar->grammar_name, current_grammar->file_name); break;
 			case VOSK_GRAMMAR_REMOVE: vosk_remove_ws_grammar(vosk_speech->ws, current_grammar->grammar_name); break;
 		}
-        current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		current_grammar = AST_LIST_NEXT(prev_grammar, list);
 	}
-    if (vosk_speech->new_grammars != NULL) {
+	if (vosk_speech->new_grammars != NULL) {
 		_grammar_list_free(vosk_speech->new_grammars);
 		vosk_speech->new_grammars = NULL;
 	}
@@ -334,7 +334,6 @@ static int vosk_send_grammars(struct vosk_speech_t *vosk_speech) {
 static int vosk_set_ws_grammar(struct ast_websocket *ws, const char *grammar_name) {
 	int len = 0, result = 0;
 	char* buf =	NULL;
-	ast_log(LOG_NOTICE, "(%s) Activate grammar in engine over websocket: %s \n", "vosk", grammar_name);
 	len = snprintf(buf, len, "{\"setgrammar\": \"%s\"}", grammar_name);
 	if (len < 0) return -1;
 	len++;
@@ -345,6 +344,7 @@ static int vosk_set_ws_grammar(struct ast_websocket *ws, const char *grammar_nam
 		ast_free(buf);
 		return -1;
 	}
+	ast_log(LOG_NOTICE, "(%s) Activate grammar (%d) in engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(buf);
 	return result;
@@ -354,17 +354,17 @@ static int vosk_set_ws_grammar(struct ast_websocket *ws, const char *grammar_nam
 static int vosk_recog_load_grammar(struct ast_speech *speech, const char *grammar_name, const char *grammar_path)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-    struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
+	struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
 	while (current_grammar != NULL) {
 		prev_grammar = current_grammar;
-        current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		current_grammar = AST_LIST_NEXT(prev_grammar, list);
 	}
 	current_grammar = ast_calloc(sizeof(struct vosk_grammar_list_t), 1);
 	if (current_grammar == NULL) return -1;
 	current_grammar->file_name = ast_strdup(grammar_path);
 	current_grammar->grammar_name = ast_strdup(grammar_name);
 	current_grammar->mode = VOSK_GRAMMAR_ADD;
-    if (prev_grammar == NULL) {
+	if (prev_grammar == NULL) {
 		vosk_speech->new_grammars = current_grammar;
 	} else {
 		prev_grammar->list.next = current_grammar;
@@ -379,16 +379,16 @@ static int vosk_recog_load_grammar(struct ast_speech *speech, const char *gramma
 static int vosk_recog_unload_grammar(struct ast_speech *speech, const char *grammar_name)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-    struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
+	struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
 	while (current_grammar != NULL) {
 		prev_grammar = current_grammar;
-        current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		current_grammar = AST_LIST_NEXT(prev_grammar, list);
 	}
 	current_grammar = ast_calloc(sizeof(struct vosk_grammar_list_t), 1);
 	if (current_grammar == NULL) return -1;
 	current_grammar->grammar_name = ast_strdup(grammar_name);
 	current_grammar->mode = VOSK_GRAMMAR_REMOVE;
-    if (prev_grammar == NULL) {
+	if (prev_grammar == NULL) {
 		vosk_speech->new_grammars = current_grammar;
 	} else {
 		prev_grammar->list.next = current_grammar;
@@ -403,7 +403,7 @@ static int vosk_recog_unload_grammar(struct ast_speech *speech, const char *gram
 static int vosk_recog_activate_grammar(struct ast_speech *speech, const char *grammar_name)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-    if (vosk_speech->grammar != NULL) ast_free(vosk_speech->grammar);
+	if (vosk_speech->grammar != NULL) ast_free(vosk_speech->grammar);
 	vosk_speech->grammar = ast_strdup(grammar_name);
 	if (vosk_speech->ws) {
 		return vosk_set_ws_grammar(vosk_speech->ws, grammar_name);
@@ -415,7 +415,7 @@ static int vosk_recog_activate_grammar(struct ast_speech *speech, const char *gr
 static int vosk_recog_deactivate_grammar(struct ast_speech *speech, const char *grammar_name)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-    if (vosk_speech->grammar != NULL) ast_free(vosk_speech->grammar);
+	if (vosk_speech->grammar != NULL) ast_free(vosk_speech->grammar);
 	vosk_speech->grammar = NULL;
 	if (vosk_speech->ws) {
 		return vosk_set_ws_grammar(vosk_speech->ws, "");
@@ -452,20 +452,20 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 					struct ast_speech_result *current_result;
 					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
 
-                    current_result = ast_calloc(sizeof(struct ast_speech_result), 1);
+					current_result = ast_calloc(sizeof(struct ast_speech_result), 1);
 					if (grammar != NULL) {
-                    	current_result->grammar = ast_strdup(grammar);
+						current_result->grammar = ast_strdup(grammar);
 					} else {
-                    	current_result->grammar = ast_strdup("unknown");
+						current_result->grammar = ast_strdup("unknown");
 					}
 					current_result->text = ast_strdup(text);
 					current_result->score = 100;
 
-                    /* Place recognition result to the top of result stack*/
+					/* Place recognition result to the top of result stack*/
 					current_result->list.next = vosk_speech->results;
 					vosk_speech->results = current_result;
 
-                    #ifdef AST_SPEECH_STREAM
+					#ifdef AST_SPEECH_STREAM
 					ast_log(LOG_NOTICE, "(%s) Stream playing: %s mode is:%s\n",vosk_speech->name, (ast_test_flag(speech, AST_SPEECH_STREAM)?"yes":"no"), ((vosk_speech->mode == VOSK_SPEECH_IMMEDIATE)?"immediate":((vosk_speech->mode == VOSK_SPEECH_QUIET)?"quiet":"grammar")));
 					/* If stream to user are completed or immediate mode selected - finish regognition process */
 					if (!ast_test_flag(speech, AST_SPEECH_STREAM) || (vosk_speech->mode == VOSK_SPEECH_IMMEDIATE)) {
@@ -534,14 +534,13 @@ static int vosk_recog_start(struct ast_speech *speech)
 		vosk_speech->ws = ast_websocket_client_create(ws_url, "ws", NULL, &result);
 		ast_free(ws_url);
 
-        if (vosk_speech->new_grammars != NULL) vosk_send_grammars(vosk_speech);
-		if (vosk_speech->grammar != NULL) vosk_set_ws_grammar(vosk_speech->ws, vosk_speech->grammar);
-
 		ast_log(LOG_NOTICE, "(%s) Connecting to the speech recognition service result %d\n", vosk_speech->name, result);
 		if (!vosk_speech->ws) {
 			ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
 			return -1;
 		} 
+		if (vosk_speech->new_grammars != NULL) vosk_send_grammars(vosk_speech);
+		if (vosk_speech->grammar != NULL) vosk_set_ws_grammar(vosk_speech->ws, vosk_speech->grammar);
 	}
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
@@ -580,13 +579,13 @@ static int vosk_recog_change(struct ast_speech *speech, const char *name, const 
 		return 0;
 	} else if (strcasecmp(name, "mode")==0) {
 		if (strcasecmp(value, "immediate")==0) {
-            vosk_speech->mode = VOSK_SPEECH_IMMEDIATE;
+			vosk_speech->mode = VOSK_SPEECH_IMMEDIATE;
 			return 0;
 		} else if (strcasecmp(value, "quiet")==0) {
-            vosk_speech->mode = VOSK_SPEECH_QUIET;
+			vosk_speech->mode = VOSK_SPEECH_QUIET;
 			return 0;
 		} else if (strcasecmp(value, "grammar")==0) {
-            vosk_speech->mode = VOSK_SPEECH_GRAMMAR;
+			vosk_speech->mode = VOSK_SPEECH_GRAMMAR;
 			return 0;
 		}
 		return -1;
@@ -615,9 +614,9 @@ static int vosk_recog_get_settings(struct ast_speech *speech, const char *name, 
 		return 0;
 	} else if (strcasecmp(name, "mode")==0) {
 		switch (vosk_speech->mode) {
-            case VOSK_SPEECH_IMMEDIATE: strncpy(buf, "immediate", len); break;
-            case VOSK_SPEECH_QUIET: strncpy(buf, "quet", len); break;
-            case VOSK_SPEECH_GRAMMAR: strncpy(buf, "grammar", len); break;
+			case VOSK_SPEECH_IMMEDIATE: strncpy(buf, "immediate", len); break;
+			case VOSK_SPEECH_QUIET: strncpy(buf, "quet", len); break;
+			case VOSK_SPEECH_GRAMMAR: strncpy(buf, "grammar", len); break;
 		}
 		return 0;
 	}
@@ -714,7 +713,7 @@ static int load_module(void)
 {
 	ast_log(LOG_NOTICE, "Load res_speech_vosk module\n");
 
-    vosk_engine.servers = NULL;
+	vosk_engine.servers = NULL;
 	/* Load engine configuration */
 	vosk_engine_config_load();
 
@@ -762,7 +761,7 @@ static int _server_list_free(struct vosk_engine_server_t *server)
 /** \brief Unload module */
 static int unload_module(void)
 {
-	ast_free(vosk_engine.ws_url);
+	if(vosk_engine.ws_url != NULL) ast_free(vosk_engine.ws_url);
 
 	if (vosk_engine.servers != NULL) {
 		_server_list_free(vosk_engine.servers);
