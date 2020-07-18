@@ -13,6 +13,7 @@ update since we need some fixes in res_http_websocket.
 1) First build the modules
 
 ```
+./bootstrap
 ./configure --with-asterisk=<path_to_source>/asterisk --prefix=<path_to_install>
 make
 make install
