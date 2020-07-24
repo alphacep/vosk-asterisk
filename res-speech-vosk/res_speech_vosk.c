@@ -105,44 +105,56 @@ struct vosk_engine_t {
 
 static struct vosk_engine_t vosk_engine;
 
-static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
-                                'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-                                'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
-                                'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
-                                'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
-                                'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
-                                'w', 'x', 'y', 'z', '0', '1', '2', '3',
-                                '4', '5', '6', '7', '8', '9', '+', '/'};
+const char b64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-static int mod_table[] = {0, 2, 1};
+size_t b64_encoded_size(size_t inlen)
+{
+	size_t ret;
 
-char *base64_encode(const unsigned char *data,
-			int input_length,
-			int *output_length) {
+	ret = inlen;
+	if (inlen % 3 != 0)
+		ret += 3 - (inlen % 3);
+	ret /= 3;
+	ret *= 4;
 
-	*output_length = 4 * ((input_length + 2) / 3);
+	return ret;
+}
 
-	char *encoded_data = ast_calloc(*output_length, 1);
-	if (encoded_data == NULL) return NULL;
+char *b64_encode(const unsigned char *in, size_t len)
+{
+	char   *out;
+	size_t  elen;
+	size_t  i;
+	size_t  j;
+	size_t  v;
 
-	for (int i = 0, j = 0; i < input_length;) {
+	if (in == NULL || len == 0)
+		return NULL;
 
-		uint32_t octet_a = i < input_length ? (unsigned char)data[i++] : 0;
-		uint32_t octet_b = i < input_length ? (unsigned char)data[i++] : 0;
-		uint32_t octet_c = i < input_length ? (unsigned char)data[i++] : 0;
+	elen = b64_encoded_size(len);
+	out  = ast_malloc(elen+1);
+	out[elen] = '\0';
 
-		uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+	for (i=0, j=0; i<len; i+=3, j+=4) {
+		v = in[i];
+		v = i+1 < len ? v << 8 | in[i+1] : v << 8;
+		v = i+2 < len ? v << 8 | in[i+2] : v << 8;
 
-		encoded_data[j++] = encoding_table[(triple >> 3 * 6) & 0x3F];
-		encoded_data[j++] = encoding_table[(triple >> 2 * 6) & 0x3F];
-		encoded_data[j++] = encoding_table[(triple >> 1 * 6) & 0x3F];
-		encoded_data[j++] = encoding_table[(triple >> 0 * 6) & 0x3F];
+		out[j]   = b64chars[(v >> 18) & 0x3F];
+		out[j+1] = b64chars[(v >> 12) & 0x3F];
+		if (i+1 < len) {
+			out[j+2] = b64chars[(v >> 6) & 0x3F];
+		} else {
+			out[j+2] = '=';
+		}
+		if (i+2 < len) {
+			out[j+3] = b64chars[v & 0x3F];
+		} else {
+			out[j+3] = '=';
+		}
 	}
 
-	for (int i = 0; i < mod_table[input_length % 3]; i++)
-		encoded_data[*output_length - 1 - i] = '=';
-
-	return encoded_data;
+	return out;
 }
 
 /*! \brief Search list of servers and find corresponding one */
@@ -263,8 +275,9 @@ static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_na
 	}
 	file_size = read(fd, file_contents, file_size);
 	close(fd);
+	file_contents[file_size] = '\0';
 
-	base64 = base64_encode(file_contents, file_size, &file_size);
+	base64 = b64_encode(file_contents, file_size);
 	ast_free(file_contents);
 	if(base64 == NULL) {
 		return -1;
