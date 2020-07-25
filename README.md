@@ -34,6 +34,7 @@ load = res_speech_vosk.so
 exten = 1,1,Answer
 same = n,Wait(1)
 same = n,SpeechCreate
+same = n,Set(SPEECH_ENGINE(language)=${CHANNEL(language)})
 same = n,SpeechBackground(hello)
 same = n,Verbose(0,Result was ${SPEECH_TEXT(0)})
 ```
