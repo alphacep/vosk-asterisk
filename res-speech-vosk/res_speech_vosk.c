@@ -1,3 +1,6 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
+
 /*
  * Asterisk -- An open source telephony toolkit.
  *
@@ -197,7 +200,8 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 	vosk_speech->name = "vosk";
 	speech->data = vosk_speech;
 
-	ast_log(LOG_NOTICE, "(%s) Create speech resource\n",vosk_speech->name);
+	ast_log(LOG_DEBUG, "(%s) Create speech resource\n",vosk_speech->name);
+	return 0;
 }
 
 /** \brief Destroy any data set on the speech structure by the engine */
@@ -205,7 +209,7 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
 	struct ast_speech_result *current_result = vosk_speech->results, *prev_result = NULL;
-	ast_log(LOG_NOTICE, "(%s) Destroy speech resource\n",vosk_speech->name);
+	ast_log(LOG_DEBUG, "(%s) Destroy speech resource\n",vosk_speech->name);
 
 	if (vosk_speech->ws) {
 		int fd = ast_websocket_fd(vosk_speech->ws);
@@ -248,7 +252,7 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 static int vosk_recog_stop(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Stop recognition\n",vosk_speech->name);
+	ast_log(LOG_DEBUG, "(%s) Stop recognition\n",vosk_speech->name);
 	ast_speech_change_state(speech, AST_SPEECH_STATE_NOT_READY);
 	return 0;
 }
@@ -291,14 +295,17 @@ static int vosk_load_ws_grammar(struct ast_websocket *ws, const char *grammar_na
 	}
 	len++;
 	buf = ast_malloc(len);
-	if (buf == NULL) return -1;
+	if (buf == NULL) {
+		ast_free(file_contents);
+		return -1;
+	}
 	len = snprintf(buf, len, "{\"newgrammar\": \"%s\", \"grammar_data\": \"%s\"}", grammar_name, file_contents);
 	if (len < 0) {
 		ast_free(file_contents);
 		ast_free(buf);
 		return -1;
 	}
-	ast_log(LOG_NOTICE, "(%s) Upload grammar (%d) to engine over websocket: %s \n", "vosk", len, grammar_name);
+	ast_log(LOG_DEBUG, "(%s) Upload grammar (%d) to engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(file_contents);
 	ast_free(buf);
@@ -319,7 +326,7 @@ static int vosk_remove_ws_grammar(struct ast_websocket *ws, const char *grammar_
 		ast_free(buf);
 		return -1;
 	}
-	ast_log(LOG_NOTICE, "(%s) Remove grammar (%d) from engine over websocket: %s \n", "vosk", len, grammar_name);
+	ast_log(LOG_DEBUG, "(%s) Remove grammar (%d) from engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(buf);
 	return result;
@@ -357,7 +364,7 @@ static int vosk_set_ws_grammar(struct ast_websocket *ws, const char *grammar_nam
 		ast_free(buf);
 		return -1;
 	}
-	ast_log(LOG_NOTICE, "(%s) Activate grammar (%d) in engine over websocket: %s \n", "vosk", len, grammar_name);
+	ast_log(LOG_DEBUG, "(%s) Activate grammar (%d) in engine over websocket: %s \n", "vosk", len, grammar_name);
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(buf);
 	return result;
@@ -445,17 +452,21 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 
 	ast_assert (vosk-speech->offset + len < VOSK_BUF_SIZE);
 
-	memcpy(vosk_speech->buf + vosk_speech->offset, data, len);
-	vosk_speech->offset += len;
-	if (vosk_speech->offset == VOSK_BUF_SIZE) {
+    if(vosk_speech->offset + len >= VOSK_BUF_SIZE) {
+      	res_len = vosk_speech->offset + len - VOSK_BUF_SIZE;
+		memcpy(vosk_speech->buf + vosk_speech->offset, data, len-res_len);
 		ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, vosk_speech->buf, VOSK_BUF_SIZE);
-		vosk_speech->offset = 0;
+		if(res_len>0) memcpy(vosk_speech->buf, data + (len-res_len), res_len);
+		vosk_speech->offset = res_len;
+	} else {
+		memcpy(vosk_speech->buf + vosk_speech->offset, data, len);
+		vosk_speech->offset += len;
 	}
 
 	if (ast_websocket_wait_for_input(vosk_speech->ws, 0) > 0) {
 		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
 		if (res_len >= 0) {
-			ast_log(LOG_NOTICE, "(%s) Got result: '%s'\n", vosk_speech->name, res);
+			ast_log(LOG_DEBUG, "(%s) Got result: '%s'\n", vosk_speech->name, res);
 			struct ast_json_error err;
 			struct ast_json *res_json = ast_json_load_string(res, &err);
 			if (res_json != NULL) {
@@ -463,7 +474,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 				const char *grammar = ast_json_object_string_get(res_json, "grammar");
 				if (text != NULL && !ast_strlen_zero(text)) {
 					struct ast_speech_result *current_result;
-					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
+					ast_log(LOG_DEBUG, "(%s) Recognition result: %s\n", vosk_speech->name, text);
 
 					current_result = ast_calloc(sizeof(struct ast_speech_result), 1);
 					if (grammar != NULL) {
@@ -479,7 +490,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 					vosk_speech->results = current_result;
 
 					#ifdef AST_SPEECH_STREAM
-					ast_log(LOG_NOTICE, "(%s) Stream playing: %s mode is:%s\n",vosk_speech->name, (ast_test_flag(speech, AST_SPEECH_STREAM)?"yes":"no"), ((vosk_speech->mode == VOSK_SPEECH_IMMEDIATE)?"immediate":((vosk_speech->mode == VOSK_SPEECH_QUIET)?"quiet":"grammar")));
+					ast_log(LOG_DEBUG, "(%s) Stream playing: %s mode is:%s\n",vosk_speech->name, (ast_test_flag(speech, AST_SPEECH_STREAM)?"yes":"no"), ((vosk_speech->mode == VOSK_SPEECH_IMMEDIATE)?"immediate":((vosk_speech->mode == VOSK_SPEECH_QUIET)?"quiet":"grammar")));
 					/* If stream to user are completed or immediate mode selected - finish regognition process */
 					if (!ast_test_flag(speech, AST_SPEECH_STREAM) || (vosk_speech->mode == VOSK_SPEECH_IMMEDIATE)) {
 						ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
@@ -498,7 +509,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 				ast_log(LOG_ERROR, "(%s) JSON parse error: %s\n", vosk_speech->name, err.text);
 			}
 		} else {
-			ast_log(LOG_NOTICE, "(%s) Got error result %d\n", vosk_speech->name, res_len);
+			ast_log(LOG_DEBUG, "(%s) Got error result %d\n", vosk_speech->name, res_len);
 		}
 	}
 
@@ -509,7 +520,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Signal DTMF %s\n",vosk_speech->name,dtmf);
+	ast_log(LOG_DEBUG, "(%s) Signal DTMF %s\n",vosk_speech->name,dtmf);
 	return 0;
 }
 
@@ -518,11 +529,11 @@ static int vosk_recog_start(struct ast_speech *speech)
 {
 	enum ast_websocket_result result;
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Start recognition\n",vosk_speech->name);
+	ast_log(LOG_DEBUG, "(%s) Start recognition\n",vosk_speech->name);
 	if (!vosk_speech->ws) {
 		const char *tmp;
 		char *ws_url = NULL;
-		int len;
+		int len = 0;
 
 		if (vosk_speech->server) {
 			tmp = _server_list_get(vosk_speech->server);
@@ -547,7 +558,7 @@ static int vosk_recog_start(struct ast_speech *speech)
 		vosk_speech->ws = ast_websocket_client_create(ws_url, "ws", NULL, &result);
 		ast_free(ws_url);
 
-		ast_log(LOG_NOTICE, "(%s) Connecting to the speech recognition service result %d\n", vosk_speech->name, result);
+		ast_log(LOG_DEBUG, "(%s) Connecting to the speech recognition service result %d\n", vosk_speech->name, result);
 		if (!vosk_speech->ws) {
 			ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
 			return -1;
@@ -563,7 +574,7 @@ static int vosk_recog_start(struct ast_speech *speech)
 static int vosk_recog_change(struct ast_speech *speech, const char *name, const char *value)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Change setting name: %s value:%s\n",vosk_speech->name,name,value);
+	ast_log(LOG_DEBUG, "(%s) Change setting name: %s value:%s\n",vosk_speech->name,name,value);
 	if (strcasecmp(name, "language")==0) {
 		if (vosk_speech->language != NULL) ast_free(vosk_speech->language);
 		vosk_speech->language = ast_strdup(value);
@@ -610,7 +621,7 @@ static int vosk_recog_change(struct ast_speech *speech, const char *name, const 
 static int vosk_recog_get_settings(struct ast_speech *speech, const char *name, char *buf, size_t len)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Get settings name: %s\n",vosk_speech->name,name);
+	ast_log(LOG_DEBUG, "(%s) Get settings name: %s\n",vosk_speech->name,name);
 	if (strcasecmp(name, "language")==0) {
 		if (vosk_speech->language) {
 			strncpy(buf, vosk_speech->language, len);
@@ -693,7 +704,7 @@ static int vosk_engine_config_load()
 		vosk_engine.log_level = atoi(value);
 	}
 	if ((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
-		ast_log(LOG_NOTICE, "general.url=%s\n", value);
+		ast_log(LOG_DEBUG, "general.url=%s\n", value);
 		vosk_engine.ws_url = ast_strdup(value);
 	}
 	if (!vosk_engine.ws_url) {
@@ -703,7 +714,7 @@ static int vosk_engine_config_load()
 	while (category = ast_category_browse(cfg, category)) {
 		if (strcasecmp(category, "general")!=0) {
 			if ((value = ast_variable_retrieve(cfg, category, "url")) != NULL) {
-				ast_log(LOG_NOTICE, "%s.url=%s\n", category, value);
+				ast_log(LOG_DEBUG, "%s.url=%s\n", category, value);
 				if (last_srv == NULL) {
 					vosk_engine.servers = ast_calloc(sizeof(struct vosk_engine_server_t), 1);
 					last_srv = vosk_engine.servers;
@@ -724,7 +735,7 @@ static int vosk_engine_config_load()
 /** \brief Load module */
 static int load_module(void)
 {
-	ast_log(LOG_NOTICE, "Load res_speech_vosk module\n");
+	ast_log(LOG_DEBUG, "Load res_speech_vosk module\n");
 
 	vosk_engine.servers = NULL;
 	/* Load engine configuration */
@@ -781,7 +792,7 @@ static int unload_module(void)
 		vosk_engine.servers = NULL;
 	}
 
-	ast_log(LOG_NOTICE, "Unload res_speech_vosk module\n");
+	ast_log(LOG_DEBUG, "Unload res_speech_vosk module\n");
 	if (ast_speech_unregister(VOSK_ENGINE_NAME)) {
 		ast_log(LOG_ERROR, "Failed to unregister module\n");
 	}

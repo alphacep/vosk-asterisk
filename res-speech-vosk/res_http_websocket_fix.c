@@ -1,3 +1,6 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
+
 /*
  * Asterisk -- An open source telephony toolkit.
  *
@@ -287,7 +290,7 @@ int AST_OPTIONAL_API_NAME(ast_websocket_server_remove_protocol)(struct ast_webso
 int AST_OPTIONAL_API_NAME(ast_websocket_close)(struct ast_websocket *session, uint16_t reason)
 {
 	enum ast_websocket_opcode opcode = AST_WEBSOCKET_OPCODE_CLOSE;
-	char frame[8] = { 0, };
+	unsigned char frame[8] = { 0, };
 	int header_size, frame_size;
 	int res;
 
