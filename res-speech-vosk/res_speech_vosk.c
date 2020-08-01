@@ -182,9 +182,10 @@ static const char* _server_list_get(char* server)
 static int _grammar_list_free(struct vosk_grammar_list_t *list) {
 	struct vosk_grammar_list_t *current_grammar = list, *prev_grammar = NULL;
 	while (current_grammar != NULL) {
-		prev_grammar = current_grammar;
 		if (current_grammar->file_name != NULL) ast_free(current_grammar->file_name);
 		if (current_grammar->grammar_name != NULL) ast_free(current_grammar->grammar_name);
+
+		prev_grammar = current_grammar;
 		current_grammar = AST_LIST_NEXT(current_grammar, list);
 		ast_free(prev_grammar);
 	}
@@ -220,7 +221,6 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 		ast_websocket_unref(vosk_speech->ws);
 	}
 	while (current_result != NULL) {
-		prev_result = current_result;
 		/* Deallocate what we can */
 		if (current_result->grammar != NULL) {
 			ast_free(current_result->grammar);
@@ -230,10 +230,11 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 			ast_free(current_result->text);
 			current_result->text = NULL;
 		}
+
 		/* Move on and then free ourselves */
+		prev_result = current_result;
 		current_result = AST_LIST_NEXT(current_result, list);
 		ast_free(prev_result);
-		prev_result = NULL;
 	}
 	vosk_speech->results = NULL;
 	if (vosk_speech->new_grammars != NULL) {
@@ -334,14 +335,13 @@ static int vosk_remove_ws_grammar(struct ast_websocket *ws, const char *grammar_
 
 /** \brief Process collected grammar actions */
 static int vosk_send_grammars(struct vosk_speech_t *vosk_speech) {
-    struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
+    struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars;
 	while (current_grammar != NULL) {
-		prev_grammar = current_grammar;
 		switch (current_grammar->mode) {
 			case VOSK_GRAMMAR_ADD: vosk_load_ws_grammar(vosk_speech->ws, current_grammar->grammar_name, current_grammar->file_name); break;
 			case VOSK_GRAMMAR_REMOVE: vosk_remove_ws_grammar(vosk_speech->ws, current_grammar->grammar_name); break;
 		}
-		current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		current_grammar = AST_LIST_NEXT(current_grammar, list);
 	}
 	if (vosk_speech->new_grammars != NULL) {
 		_grammar_list_free(vosk_speech->new_grammars);
@@ -377,7 +377,7 @@ static int vosk_recog_load_grammar(struct ast_speech *speech, const char *gramma
 	struct vosk_grammar_list_t *current_grammar = vosk_speech->new_grammars, *prev_grammar = NULL;
 	while (current_grammar != NULL) {
 		prev_grammar = current_grammar;
-		current_grammar = AST_LIST_NEXT(prev_grammar, list);
+		current_grammar = AST_LIST_NEXT(current_grammar, list);
 	}
 	current_grammar = ast_calloc(sizeof(struct vosk_grammar_list_t), 1);
 	if (current_grammar == NULL) return -1;
@@ -507,9 +507,13 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 				ast_json_free(res_json);
 			} else {
 				ast_log(LOG_ERROR, "(%s) JSON parse error: %s\n", vosk_speech->name, err.text);
+				ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
+				return -1;
 			}
 		} else {
 			ast_log(LOG_DEBUG, "(%s) Got error result %d\n", vosk_speech->name, res_len);
+			ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
+			return -1;
 		}
 	}
 
@@ -546,14 +550,16 @@ static int vosk_recog_start(struct ast_speech *speech)
 				len++;
 				ws_url = ast_calloc(len, 1);
 				if(!((ws_url!=NULL)&&(len = snprintf(ws_url, len, "%s?language=%s", tmp, vosk_speech->language)))) {
-					ws_url = ast_strdup(tmp);
+					if(ws_url!=NULL) ast_free(ws_url);
+					ws_url = NULL;
 				}
 			} else {
-				ws_url = ast_strdup(tmp);
+				ws_url = NULL;
 			}
 		} else {
-			ws_url = ast_strdup(tmp);
+			ws_url = NULL;
 		}
+        if(!ws_url) ws_url = ast_strdup(tmp);
 
 		vosk_speech->ws = ast_websocket_client_create(ws_url, "ws", NULL, &result);
 		ast_free(ws_url);
@@ -564,7 +570,11 @@ static int vosk_recog_start(struct ast_speech *speech)
 			return -1;
 		} 
 		if (vosk_speech->new_grammars != NULL) vosk_send_grammars(vosk_speech);
-		if (vosk_speech->grammar != NULL) vosk_set_ws_grammar(vosk_speech->ws, vosk_speech->grammar);
+		if (vosk_speech->grammar != NULL) {
+			vosk_set_ws_grammar(vosk_speech->ws, vosk_speech->grammar);
+			ast_free(vosk_speech->grammar);
+			vosk_speech->grammar = NULL;
+		}
 	}
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
@@ -763,7 +773,6 @@ static int _server_list_free(struct vosk_engine_server_t *server)
 	int res = 0;
 
 	while (current_srv != NULL) {
-		prev_srv = current_srv;
 		/* Deallocate what we can */
 		if (current_srv->name != NULL) {
 			ast_free(current_srv->name);
@@ -774,9 +783,9 @@ static int _server_list_free(struct vosk_engine_server_t *server)
 			current_srv->ws_url = NULL;
 		}
 		/* Move on and then free ourselves */
+		prev_srv = current_srv;
 		current_srv = AST_LIST_NEXT(current_srv, list);
 		ast_free(prev_srv);
-		prev_srv = NULL;
 	}
 
 	return res;
