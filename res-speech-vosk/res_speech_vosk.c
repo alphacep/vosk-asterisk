@@ -57,6 +57,7 @@ enum vosk_speech_mode {
 	VOSK_SPEECH_IMMEDIATE = 0,        /* Immediate complete after the speech recognition done */
 	VOSK_SPEECH_QUIET = 1,        /* No complite recognition process while bacground sound are played to other party */
 	VOSK_SPEECH_GRAMMAR = 2, /* Complete immediate after a valid grammar processed, otherwise continue recognition while playing sound. If no grammar set, works as VOSK_SPEECH_QUIET */
+	VOSK_SPEECH_GRAMMAR_HEURISTICS = 3, /* Complete immediate after a valid grammar processed or on the third similar case, otherwise continue recognition while playing sound. If no grammar set, works as VOSK_SPEECH_QUIET */
 };
 
 /* Grammar list mode flags */
@@ -370,6 +371,26 @@ static int vosk_set_ws_grammar(struct ast_websocket *ws, const char *grammar_nam
 	return result;
 }
 
+/** \brief Send command to set heuristics mode in Vosk server */
+static int vosk_send_ws_heuristics(struct ast_websocket *ws, int enabled) {
+	int len = 0, result = 0;
+	char* buf =	NULL;
+	len = snprintf(buf, len, "{\"setheuristics\": \"%s\"}", enabled?"true":"false");
+	if (len < 0) return -1;
+	len++;
+	buf = ast_malloc(len);
+	if (buf == NULL) return -1;
+	len = snprintf(buf, len, "{\"setheuristics\": \"%s\"}", enabled?"true":"false");
+	if (len < 0) {
+		ast_free(buf);
+		return -1;
+	}
+	ast_log(LOG_DEBUG, "(%s) Set heuristics to %s in engine over websocket: %s \n", "vosk", enabled?"true":"false");
+	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
+	ast_free(buf);
+	return result;
+}
+
 /*! \brief Load a local grammar on the speech structure */
 static int vosk_recog_load_grammar(struct ast_speech *speech, const char *grammar_name, const char *grammar_path)
 {
@@ -569,6 +590,7 @@ static int vosk_recog_start(struct ast_speech *speech)
 			ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
 			return -1;
 		} 
+	    vosk_send_ws_heuristics(vosk_speech->ws, vosk_speech->mode == VOSK_SPEECH_GRAMMAR_HEURISTICS);
 		if (vosk_speech->new_grammars != NULL) vosk_send_grammars(vosk_speech);
 		if (vosk_speech->grammar != NULL) {
 			vosk_set_ws_grammar(vosk_speech->ws, vosk_speech->grammar);
@@ -578,6 +600,14 @@ static int vosk_recog_start(struct ast_speech *speech)
 	}
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
+}
+
+/** \brief Sets new mode and check for heuristics mode */
+static void vosk_checkmode(struct vosk_speech_t *vosk_speech, int new_mode) {
+	if(vosk_speech->ws && (vosk_speech->mode != new_mode)) {
+	    vosk_send_ws_heuristics(vosk_speech->ws, vosk_speech->mode != VOSK_SPEECH_GRAMMAR_HEURISTICS);
+	}
+	vosk_speech->mode = new_mode;
 }
 
 /** \brief Change an engine specific setting */
@@ -611,15 +641,18 @@ static int vosk_recog_change(struct ast_speech *speech, const char *name, const 
 			vosk_speech->ws = NULL;
 		}
 		return 0;
-	} else if (strcasecmp(name, "mode")==0) {
+	} else if (strcasecmp(name, "mode")==0) {    
 		if (strcasecmp(value, "immediate")==0) {
-			vosk_speech->mode = VOSK_SPEECH_IMMEDIATE;
+			vosk_checkmode(vosk_speech, VOSK_SPEECH_IMMEDIATE);
 			return 0;
 		} else if (strcasecmp(value, "quiet")==0) {
-			vosk_speech->mode = VOSK_SPEECH_QUIET;
+			vosk_checkmode(vosk_speech, VOSK_SPEECH_QUIET);
 			return 0;
 		} else if (strcasecmp(value, "grammar")==0) {
-			vosk_speech->mode = VOSK_SPEECH_GRAMMAR;
+			vosk_checkmode(vosk_speech, VOSK_SPEECH_GRAMMAR);
+			return 0;
+		} else if (strcasecmp(value, "hgrammar")==0) {
+			vosk_checkmode(vosk_speech, VOSK_SPEECH_GRAMMAR_HEURISTICS);
 			return 0;
 		}
 		return -1;
@@ -651,6 +684,7 @@ static int vosk_recog_get_settings(struct ast_speech *speech, const char *name, 
 			case VOSK_SPEECH_IMMEDIATE: strncpy(buf, "immediate", len); break;
 			case VOSK_SPEECH_QUIET: strncpy(buf, "quet", len); break;
 			case VOSK_SPEECH_GRAMMAR: strncpy(buf, "grammar", len); break;
+			case VOSK_SPEECH_GRAMMAR_HEURISTICS: strncpy(buf, "hgrammar", len); break;
 		}
 		return 0;
 	}
