@@ -385,7 +385,7 @@ static int vosk_send_ws_heuristics(struct ast_websocket *ws, int enabled) {
 		ast_free(buf);
 		return -1;
 	}
-	ast_log(LOG_DEBUG, "(%s) Set heuristics to %s in engine over websocket: %s \n", "vosk", enabled?"true":"false");
+	ast_log(LOG_DEBUG, "(%s) Set heuristics to %s in engine over websocket\n", "vosk", enabled?"true":"false");
 	result = ast_websocket_write(ws, AST_WEBSOCKET_OPCODE_TEXT, buf, len);
 	ast_free(buf);
 	return result;
