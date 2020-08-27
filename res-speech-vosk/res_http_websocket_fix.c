@@ -1441,7 +1441,7 @@ int AST_OPTIONAL_API_NAME(ast_websocket_read_string)
 		if (opcode == AST_WEBSOCKET_OPCODE_PING) {
 			/* Try again, we have sent pong already */
 			fragmented = 1;
-			continue;
+			return 0;
 		}
 
 		if (opcode == AST_WEBSOCKET_OPCODE_CONTINUATION) {
