@@ -152,6 +152,10 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	int res_len;
 
 	ast_assert (vosk_speech->offset + len < VOSK_BUF_SIZE);
+	if (vosk_speech->offset + len > VOSK_BUF_SIZE){
+		vosk_speech->offset = 0;
+		return 1;
+	}
 
 	memcpy(vosk_speech->buf + vosk_speech->offset, data, len);
 	vosk_speech->offset += len;
