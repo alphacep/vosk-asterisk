@@ -40,7 +40,7 @@
 #include <asterisk/http_websocket.h>
 
 #define VOSK_ENGINE_NAME "vosk"
-#define VOSK_ENGINE_CONFIG "res-speech-vosk.conf"
+#define VOSK_ENGINE_CONFIG "res_speech_vosk.conf"
 #define VOSK_BUF_SIZE 3200
 
 /** \brief Forward declaration of speech (client object) */
@@ -62,8 +62,6 @@ struct vosk_speech_t {
 
 /** \brief Declaration of Vosk recognition engine */
 struct vosk_engine_t {
-	/* Log level */
-	int			log_level;
 	/* Websocket url*/
 	char			*ws_url;
 };
@@ -266,10 +264,6 @@ static int vosk_engine_config_load()
 	if(!cfg) {
 		ast_log(LOG_WARNING, "No such configuration file %s\n", VOSK_ENGINE_CONFIG);
 		return -1;
-	}
-	if((value = ast_variable_retrieve(cfg, "general", "log-level")) != NULL) {
-		ast_log(LOG_DEBUG, "general.log-level=%s\n", value);
-		vosk_engine.log_level = atoi(value);
 	}
 	if((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
 		ast_log(LOG_DEBUG, "general.url=%s\n", value);
