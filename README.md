@@ -20,7 +20,7 @@ git clone https://github.com/asterisk/asterisk
 2) First build the modules
 
 ```
-./bootrap
+./bootstrap
 ./configure --with-asterisk=<path_to_asterisk_source> --prefix=<path_to_install>
 make
 make install
