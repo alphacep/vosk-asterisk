@@ -166,7 +166,12 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 			struct ast_json *res_json = ast_json_load_string(res, &err);
 			if (res_json != NULL) {
 				const char *text = ast_json_object_string_get(res_json, "text");
-				if (text != NULL && !ast_strlen_zero(text)) {
+				const char *partial = ast_json_object_string_get(res_json, "partial");
+				if (partial != NULL && !ast_strlen_zero(partial)) {
+					ast_log(LOG_NOTICE, "(%s) Partial recognition result: %s\n", vosk_speech->name, partial);
+					ast_free(vosk_speech->last_result);
+					vosk_speech->last_result = ast_strdup(partial);
+				} else if (text != NULL && !ast_strlen_zero(text)) {
 					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
 					ast_free(vosk_speech->last_result);
 					vosk_speech->last_result = ast_strdup(text);
