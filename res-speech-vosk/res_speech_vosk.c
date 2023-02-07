@@ -133,6 +133,24 @@ static int vosk_recog_unload_grammar(struct ast_speech *speech, const char *gram
 /** \brief Activate a loaded grammar */
 static int vosk_recog_activate_grammar(struct ast_speech *speech, const char *grammar_name)
 {
+	vosk_speech_t *vosk_speech = speech->data;
+        ast_log(LOG_NOTICE, "(%s) Attempting to load grammar \n",vosk_speech->name);
+        ast_log(LOG_NOTICE, "Grammar: %s", grammar_name);
+	
+	/* maybe bigger? */
+        char buffer[200];
+
+        int j;
+	
+	/* does sample_rate do anything? what does words do? */
+        j = sprintf(buffer, "{\"config\":{\"phrase_list\": %s, \"sample_rate\":8000,\"words\": 0}}", grammar_name);
+	
+        ast_log(LOG_NOTICE, "%s\n",buffer);
+        ast_log(LOG_NOTICE, "JSON Length: %d\n",j);
+
+        ast_log(LOG_NOTICE, "Writing grammar to websocket:\n");
+        ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_TEXT, buffer, j);
+
 	return 0;
 }
 
