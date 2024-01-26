@@ -287,7 +287,9 @@ static int load_module(void)
 	ast_log(LOG_NOTICE, "Load res_speech_vosk module\n");
 
 	/* Load engine configuration */
-	vosk_engine_config_load();
+	if (vosk_engine_config_load()) {
+		return AST_MODULE_LOAD_DECLINE;
+	}
 
 	ast_engine.formats = ast_format_cap_alloc(AST_FORMAT_CAP_FLAG_DEFAULT);
 	if(!ast_engine.formats) {
@@ -307,12 +309,12 @@ static int load_module(void)
 /** \brief Unload module */
 static int unload_module(void)
 {
-	ast_free(vosk_engine.ws_url);
-
 	ast_log(LOG_NOTICE, "Unload res_speech_vosk module\n");
 	if(ast_speech_unregister(VOSK_ENGINE_NAME)) {
 		ast_log(LOG_ERROR, "Failed to unregister module\n");
 	}
+
+	ast_free(vosk_engine.ws_url);
 	return 0;
 }
 
