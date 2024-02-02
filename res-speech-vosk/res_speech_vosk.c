@@ -78,7 +78,7 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 	vosk_speech->name = "vosk";
 	speech->data = vosk_speech;
 
-	ast_log(LOG_NOTICE, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
+	ast_debug(1, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
 
 	vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
 	if (!vosk_speech->ws) {
@@ -86,14 +86,16 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 		return -1;
 	} 
 
-	ast_log(LOG_NOTICE, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
+	ast_debug(1, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
+
+	return 0;
 }
 
 /** \brief Destroy any data set on the speech structure by the engine */
 static int vosk_recog_destroy(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Destroy speech resource\n",vosk_speech->name);
+	ast_debug(1, "(%s) Destroy speech resource\n",vosk_speech->name);
 
 	if (vosk_speech->ws) {
 		int fd = ast_websocket_fd(vosk_speech->ws);
@@ -113,7 +115,7 @@ static int vosk_recog_destroy(struct ast_speech *speech)
 static int vosk_recog_stop(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Stop recognition\n",vosk_speech->name);
+	ast_debug(1, "(%s) Stop recognition\n",vosk_speech->name);
 	ast_speech_change_state(speech, AST_SPEECH_STATE_NOT_READY);
 	return 0;
 }
@@ -161,18 +163,18 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	if (ast_websocket_wait_for_input(vosk_speech->ws, 0) > 0) {
 		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
 		if (res_len >= 0) {
-			ast_log(LOG_NOTICE, "(%s) Got result: '%s'\n", vosk_speech->name, res);
+			ast_verb(4, "(%s) Got result: '%s'\n", vosk_speech->name, res);
 			struct ast_json_error err;
 			struct ast_json *res_json = ast_json_load_string(res, &err);
 			if (res_json != NULL) {
 				const char *text = ast_json_object_string_get(res_json, "text");
 				const char *partial = ast_json_object_string_get(res_json, "partial");
 				if (partial != NULL && !ast_strlen_zero(partial)) {
-					ast_log(LOG_NOTICE, "(%s) Partial recognition result: %s\n", vosk_speech->name, partial);
+					ast_verb(4, "(%s) Partial recognition result: %s\n", vosk_speech->name, partial);
 					ast_free(vosk_speech->last_result);
 					vosk_speech->last_result = ast_strdup(partial);
 				} else if (text != NULL && !ast_strlen_zero(text)) {
-					ast_log(LOG_NOTICE, "(%s) Recognition result: %s\n", vosk_speech->name, text);
+					ast_verb(4, "(%s) Recognition result: %s\n", vosk_speech->name, text);
 					ast_free(vosk_speech->last_result);
 					vosk_speech->last_result = ast_strdup(text);
 					ast_speech_change_state(speech, AST_SPEECH_STATE_DONE);
@@ -193,7 +195,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Signal DTMF %s\n",vosk_speech->name,dtmf);
+	ast_verb(4, "(%s) Signal DTMF %s\n",vosk_speech->name,dtmf);
 	return 0;
 }
 
@@ -201,7 +203,7 @@ static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 static int vosk_recog_start(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Start recognition\n",vosk_speech->name);
+	ast_debug(1, "(%s) Start recognition\n",vosk_speech->name);
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
 	return 0;
 }
@@ -210,7 +212,7 @@ static int vosk_recog_start(struct ast_speech *speech)
 static int vosk_recog_change(struct ast_speech *speech, const char *name, const char *value)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Change setting name: %s value:%s\n",vosk_speech->name,name,value);
+	ast_debug(1, "(%s) Change setting name: %s value:%s\n",vosk_speech->name,name,value);
 	return 0;
 }
 
@@ -218,7 +220,7 @@ static int vosk_recog_change(struct ast_speech *speech, const char *name, const 
 static int vosk_recog_get_settings(struct ast_speech *speech, const char *name, char *buf, size_t len)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_log(LOG_NOTICE, "(%s) Get settings name: %s\n",vosk_speech->name,name);
+	ast_debug(1, "(%s) Get settings name: %s\n",vosk_speech->name,name);
 	return -1;
 }
 
