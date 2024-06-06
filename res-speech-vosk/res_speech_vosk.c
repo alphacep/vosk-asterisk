@@ -36,6 +36,7 @@
 #include <asterisk/speech.h>
 #include <asterisk/format_cache.h>
 #include <asterisk/json.h>
+#include <asterisk/lock.h>
 
 #include <asterisk/http_websocket.h>
 
@@ -160,6 +161,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 		vosk_speech->offset = 0;
 	}
 
+	ast_mutex_unlock(&speech->lock);
 	if (ast_websocket_wait_for_input(vosk_speech->ws, 0) > 0) {
 		res_len = ast_websocket_read_string(vosk_speech->ws, &res);
 		if (res_len >= 0) {
@@ -187,6 +189,7 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 			ast_log(LOG_NOTICE, "(%s) Got error result %d\n", vosk_speech->name, res_len);
 		}
 	}
+	ast_mutex_lock(&speech->lock);
 
 	return 0;
 }
