@@ -43,6 +43,7 @@
 #define VOSK_ENGINE_NAME "vosk"
 #define VOSK_ENGINE_CONFIG "res_speech_vosk.conf"
 #define VOSK_BUF_SIZE 3200
+#define VOSK_MAX_HORSES 10
 
 /** \brief Forward declaration of speech (client object) */
 typedef struct vosk_speech_t vosk_speech_t;
@@ -64,7 +65,11 @@ struct vosk_speech_t {
 /** \brief Declaration of Vosk recognition engine */
 struct vosk_engine_t {
 	/* Websocket url*/
-	char			*ws_url;
+	char			*ws_url[VOSK_MAX_HORSES];
+	/* Horse name */
+	char			*horse[VOSK_MAX_HORSES];
+	/* Horse count */
+	int				num_horses;
 };
 
 static struct vosk_engine_t vosk_engine;
@@ -74,20 +79,30 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 {
 	vosk_speech_t *vosk_speech;
 	enum ast_websocket_result result;
+	int jockey = 0;
 
 	vosk_speech = ast_calloc(1, sizeof(vosk_speech_t));
 	vosk_speech->name = "vosk";
 	speech->data = vosk_speech;
 
-	ast_debug(1, "(%s) Create speech resource %s\n",vosk_speech->name, vosk_engine.ws_url);
+	for (jockey=0; jockey < vosk_engine.num_horses; jockey++) {
+		if ((jockey == 0 && (speech->horse == NULL || ast_strlen_zero(speech->horse))) || !strcasecmp(vosk_engine.horse[jockey], speech->horse)) {
+			ast_debug(1, "(%s) Create speech resource %d horse '%s' url %s\n", vosk_speech->name, jockey, speech->horse, vosk_engine.ws_url[jockey]);
+			vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url[jockey], "ws", NULL, &result);
+			if (vosk_speech->ws) {
+				ast_debug(1, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
+			} else {
+				ast_free(speech->data);
+				return -1;
+			}
+			break;
+		}
+	}
 
-	vosk_speech->ws = ast_websocket_client_create(vosk_engine.ws_url, "ws", NULL, &result);
 	if (!vosk_speech->ws) {
-		ast_free(speech->data);
+		ast_log(LOG_WARNING, "Syntax Error in Vosk configuration and/or dial plan invocation.\n");
 		return -1;
-	} 
-
-	ast_debug(1, "(%s) Created speech resource result %d\n", vosk_speech->name, result);
+	}
 
 	return 0;
 }
@@ -154,11 +169,13 @@ static int vosk_recog_write(struct ast_speech *speech, void *data, int len)
 	vosk_speech_t *vosk_speech = speech->data;
 	char *res;
 	int res_len;
+	int i = 0;
 
 	ast_assert (vosk_speech->offset + len < VOSK_BUF_SIZE);
 
 	memcpy(vosk_speech->buf + vosk_speech->offset, data, len);
 	vosk_speech->offset += len;
+
 	if (vosk_speech->offset == VOSK_BUF_SIZE) {
 		ast_websocket_write(vosk_speech->ws, AST_WEBSOCKET_OPCODE_BINARY, vosk_speech->buf, VOSK_BUF_SIZE);
 		vosk_speech->offset = 0;
@@ -209,8 +226,12 @@ static int vosk_recog_dtmf(struct ast_speech *speech, const char *dtmf)
 static int vosk_recog_start(struct ast_speech *speech)
 {
 	vosk_speech_t *vosk_speech = speech->data;
-	ast_debug(1, "(%s) Start recognition\n",vosk_speech->name);
+    /* does not appear that reset has any effect
+	const char *reset = "{\"reset\" : 1}";
+	ast_websocket_write_string(vosk_speech->ws, reset);
+    */
 	ast_speech_change_state(speech, AST_SPEECH_STATE_READY);
+	ast_debug(1, "(%s) Start recognition\n",vosk_speech->name);
 	return 0;
 }
 
@@ -272,19 +293,44 @@ static struct ast_speech_engine ast_engine = {
 static int vosk_engine_config_load()
 {
 	const char *value = NULL;
+	char *category = NULL;
+	int num_horses = 0;
 	struct ast_flags config_flags = { 0 };
 	struct ast_config *cfg = ast_config_load(VOSK_ENGINE_CONFIG, config_flags);
 	if(!cfg) {
 		ast_log(LOG_WARNING, "No such configuration file %s\n", VOSK_ENGINE_CONFIG);
 		return -1;
 	}
-	if((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
-		ast_log(LOG_DEBUG, "general.url=%s\n", value);
-		vosk_engine.ws_url = ast_strdup(value);
+
+	if ((value = ast_variable_retrieve(cfg, "general", "url")) != NULL) {
+		ast_debug(1, "general.url=%s\n", value);
+		vosk_engine.ws_url[0] = ast_strdup(value);
+		vosk_engine.horse[0] = ast_strdup("");
+		vosk_engine.num_horses = 1;
+	} else {
+		while (category = ast_category_browse(cfg, category)) {
+			if (strcasecmp(category, "general") != 0) {
+				if ((value = ast_variable_retrieve(cfg, category, "type")) != NULL) {
+					if (!strcasecmp(value, "horse")) {
+						if ((value = ast_variable_retrieve(cfg, category, "url")) != NULL) {
+							ast_debug(1, "%s.horse.url=%s\n", category, value);
+							vosk_engine.ws_url[num_horses] = ast_strdup(value);
+							vosk_engine.horse[num_horses] = ast_strdup(category);
+							vosk_engine.num_horses = ++num_horses;
+						}
+					}
+				}
+			}
+		}
 	}
-	if (!vosk_engine.ws_url) {
-		vosk_engine.ws_url = ast_strdup("ws://localhost");
+
+	if (!vosk_engine.ws_url[0]) {
+		vosk_engine.ws_url[0] = ast_strdup("ws://localhost");
+		vosk_engine.horse[0] = ast_strdup("");
+		vosk_engine.num_horses = 1;
+		ast_debug(1, "default general.url=%s\n", vosk_engine.ws_url[0]);
 	}
+
 	ast_config_destroy(cfg);
 	return 0;
 }
@@ -317,12 +363,17 @@ static int load_module(void)
 /** \brief Unload module */
 static int unload_module(void)
 {
+	int i = 0;
+
 	ast_log(LOG_NOTICE, "Unload res_speech_vosk module\n");
 	if(ast_speech_unregister(VOSK_ENGINE_NAME)) {
 		ast_log(LOG_ERROR, "Failed to unregister module\n");
 	}
 
-	ast_free(vosk_engine.ws_url);
+	for(i=0;i<vosk_engine.num_horses;i++) {
+		ast_free(vosk_engine.ws_url[i]);
+		ast_free(vosk_engine.horse[i]);
+	}
 	return 0;
 }
 
