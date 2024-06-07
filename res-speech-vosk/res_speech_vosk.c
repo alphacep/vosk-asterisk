@@ -95,12 +95,15 @@ static int vosk_recog_create(struct ast_speech *speech, struct ast_format *forma
 /** \brief Destroy any data set on the speech structure by the engine */
 static int vosk_recog_destroy(struct ast_speech *speech)
 {
+	const char *eof = "{\"eof\" : 1}";
+
 	vosk_speech_t *vosk_speech = speech->data;
 	ast_debug(1, "(%s) Destroy speech resource\n",vosk_speech->name);
 
 	if (vosk_speech->ws) {
 		int fd = ast_websocket_fd(vosk_speech->ws);
 		if (fd > 0) {
+			ast_websocket_write_string(vosk_speech->ws, eof);
 			ast_websocket_close(vosk_speech->ws, 1000);
 			shutdown(fd, SHUT_RDWR);
 		}
